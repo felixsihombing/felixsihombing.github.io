@@ -1,1 +1,557 @@
-<h1>Under Construction</h1>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interactive Auto-Panning Map</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        #map {
+            height: 100vh;
+            width: 100vw;
+        }
+        body, html {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background: black;
+        }
+        .controls {
+            position: absolute;
+            top: 70px;
+            right: 10px;
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+            z-index: 1000;
+        }
+        button {
+            padding: 4px 6px;
+            font-size: 10px;
+            cursor: pointer;
+            background: white;
+            border: none;
+            border-radius: 5px;
+        }
+        #mini-map {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            width: 88px;
+            height: 50px;
+            border: 1px solid white;
+            z-index: 1000;
+            border-radius: 10px;
+            overflow: hidden;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="controls">
+        <button onclick="toggleMapStyle()">Switch Map Style</button>
+        <button onclick="togglePanning()">Pause</button>
+        <button onclick="increaseSpeed()">Increase Speed</button>
+        <button onclick="decreaseSpeed()">Decrease Speed</button>
+        <button onclick="changeDirection()">Change Direction</button>
+        <button onclick="toggleFullscreen()">Fullscreen</button>
+        <button onclick="randomJump()">Random Jump</button>
+        <button onclick="cityJump()">City Jump</button>
+        <button onclick="landmarkJump()">Landmark Jump</button>
+        <button onmousedown="startZooming(true)" onmouseup="stopZooming()" onclick="zoomIn()">Zoom In</button>
+        <button onmousedown="startZooming(false)" onmouseup="stopZooming()" onclick="zoomOut()">Zoom Out</button>
+    </div>
+    
+    <div id="map"></div>
+    <div id="mini-map"></div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+        let currentLat = 51.752;
+        let currentLng = -1.257;
+        let isPanning = true;
+        let speed = 0.0005;
+        let directionAngle = 0;
+        let isUserPanning = false;
+        let currentMapStyle = 'arcgis';
+        let zoomInterval;
+        let panResumeTimeout;
+
+        function initMap() {
+            window.map = L.map('map', {
+                center: [currentLat, currentLng],
+                zoom: 13,
+                zoomControl: false
+            });
+
+            window.osmLightLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '&copy; OpenStreetMap contributors'
+            });
+
+            window.osmDarkLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+                attribution: '&copy; <a href="https://carto.com/">CARTO</a>',
+                subdomains: 'abcd',
+                maxZoom: 20
+            });
+
+            window.arcgisLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+                attribution: '&copy; <a href="https://www.esri.com/en-us/home">Esri</a>'
+            });
+
+            arcgisLayer.addTo(map);
+
+            window.panInterval = setInterval(panMap, 100);
+
+            map.on('mousedown', () => {
+                isUserPanning = true;
+                togglePanning(false);
+                clearTimeout(panResumeTimeout);
+            });
+
+            map.on('mouseup', () => {
+                isUserPanning = false;
+                updateCurrentLocation();
+                panResumeTimeout = setTimeout(() => {
+                    togglePanning(true);
+                }, 100);
+            });
+
+            map.on('dragend', () => {
+                isUserPanning = false;
+                updateCurrentLocation();
+                panResumeTimeout = setTimeout(() => {
+                    togglePanning(true);
+                }, 500);
+            });
+
+            initMiniMap();
+        }
+
+        function panMap() {
+            if (!isPanning || isUserPanning) return;
+
+            let radian = directionAngle * (Math.PI / 180);
+            currentLng += Math.cos(radian) * speed;
+            currentLat += Math.sin(radian) * speed;
+
+            if (currentLng > 180) currentLng = -180;
+            if (currentLng < -180) currentLng = 180;
+            if (currentLat > 85) currentLat = 85;
+            if (currentLat < -85) currentLat = -85;
+
+            map.panTo([currentLat, currentLng]);
+            updateMiniMap();
+        }
+
+        function updateCurrentLocation() {
+            let center = map.getCenter();
+            currentLat = center.lat;
+            currentLng = center.lng;
+            updateMiniMap();
+        }
+
+        function togglePanning(state = !isPanning) {
+            isPanning = state;
+            document.querySelector("button:nth-child(2)").textContent = isPanning ? "Pause" : "Resume";
+        }
+
+        function toggleMapStyle() {
+            if (currentMapStyle === 'arcgis') {
+                map.removeLayer(arcgisLayer);
+                map.addLayer(osmLightLayer);
+                currentMapStyle = 'osmLight';
+            } else if (currentMapStyle === 'osmLight') {
+                map.removeLayer(osmLightLayer);
+                map.addLayer(osmDarkLayer);
+                currentMapStyle = 'osmDark';
+            } else {
+                map.removeLayer(osmDarkLayer);
+                map.addLayer(arcgisLayer);
+                currentMapStyle = 'arcgis';
+            }
+        }
+
+        function increaseSpeed() {
+            speed *= 1.5;
+        }
+
+        function decreaseSpeed() {
+            speed /= 1.5;
+        }
+
+        function changeDirection() {
+            directionAngle = (directionAngle + 30) % 360;
+        }
+
+        function toggleFullscreen() {
+            if (!document.fullscreenElement) {
+                document.documentElement.requestFullscreen();
+            } else {
+                document.exitFullscreen();
+            }
+        }
+
+        function cityJump() {
+            // Predefined land coordinates (major cities & remote land areas)
+            const landCoordinates = [
+                { lat: 40.7128, lng: -74.0060 },  // New York, USA
+                { lat: 48.8566, lng: 2.3522 },    // Paris, France
+                { lat: -33.8688, lng: 151.2093 }, // Sydney, Australia
+                { lat: 35.6895, lng: 139.6917 },  // Tokyo, Japan
+                { lat: -1.2921, lng: 36.8219 },   // Nairobi, Kenya
+                { lat: 55.7558, lng: 37.6173 },   // Moscow, Russia
+                { lat: -23.5505, lng: -46.6333 }, // São Paulo, Brazil
+                { lat: 60.1695, lng: 24.9354 },   // Helsinki, Finland
+                { lat: 27.7172, lng: 85.3240 },   // Kathmandu, Nepal
+                { lat: 19.4326, lng: -99.1332 },  // Mexico City, Mexico
+                { lat: 51.5074, lng: -0.1278 },   // London, UK
+                { lat: 37.7749, lng: -122.4194 }, // San Francisco, USA
+                { lat: -15.7942, lng: -47.8822 }, // Brasília, Brazil
+                { lat: 28.6139, lng: 77.2090 },   // Delhi, India
+                { lat: 64.1466, lng: -21.9426 },  // Reykjavik, Iceland
+                { lat: 13.7563, lng: 100.5018 },  // Bangkok, Thailand
+                { lat: -22.9068, lng: -43.1729 }, // Rio de Janeiro, Brazil
+                { lat: 41.9028, lng: 12.4964 },   // Rome, Italy
+                { lat: 39.9042, lng: 116.4074 },  // Beijing, China
+                { lat: 52.5200, lng: 13.4050 },   // Berlin, Germany
+                { lat: -26.2041, lng: 28.0473 },  // Johannesburg, South Africa
+                { lat: 59.3293, lng: 18.0686 },   // Stockholm, Sweden
+                { lat: 34.0522, lng: -118.2437 }, // Los Angeles, USA
+                { lat: 31.2304, lng: 121.4737 },  // Shanghai, China
+                { lat: -34.6037, lng: -58.3816 }, // Buenos Aires, Argentina
+                { lat: 12.9716, lng: 77.5946 },   // Bangalore, India
+                { lat: 50.8503, lng: 4.3517 },    // Brussels, Belgium
+                { lat: 45.4642, lng: 9.1900 },    // Milan, Italy
+                { lat: 55.6761, lng: 12.5683 },   // Copenhagen, Denmark
+                { lat: 25.276987, lng: 55.296249 }, // Dubai, UAE
+                { lat: 6.5244, lng: 3.3792 },     // Lagos, Nigeria
+                { lat: 22.3964, lng: 114.1095 },  // Hong Kong
+                { lat: -8.4095, lng: 115.1889 },  // Bali, Indonesia
+                { lat: 14.5995, lng: 120.9842 },  // Manila, Philippines
+                { lat: 35.2271, lng: -80.8431 },  // Charlotte, USA
+                { lat: 37.9838, lng: 23.7275 },   // Athens, Greece
+                { lat: -3.745, lng: -73.251 },    // Iquitos, Peru (Amazon)
+                { lat: -54.8019, lng: -68.3030 }, // Ushuaia, Argentina
+                { lat: 21.1619, lng: -86.8515 },  // Cancun, Mexico
+                { lat: 35.6895, lng: 51.3890 },   // Tehran, Iran
+                { lat: -29.8579, lng: 31.0292 },  // Durban, South Africa
+                { lat: 47.6062, lng: -122.3321 }, // Seattle, USA
+                { lat: 24.7136, lng: 46.6753 },   // Riyadh, Saudi Arabia
+                { lat: 3.1390, lng: 101.6869 },   // Kuala Lumpur, Malaysia
+                { lat: -36.8485, lng: 174.7633 }, // Auckland, New Zealand
+                { lat: 53.3498, lng: -6.2603 },   // Dublin, Ireland
+                { lat: -20.1639, lng: 57.4989 },  // Port Louis, Mauritius
+                { lat: 42.3601, lng: -71.0589 },  // Boston, USA
+                { lat: -17.8249, lng: 31.0533 },  // Harare, Zimbabwe
+                { lat: 18.4655, lng: -66.1057 },   // San Juan, Puerto Rico
+                { lat: 18.5204, lng: 73.8567 },   // Pune, India
+                { lat: -6.2088, lng: 106.8456 },  // Jakarta, Indonesia
+                { lat: 45.4215, lng: -75.6972 },  // Ottawa, Canada
+                { lat: 36.1627, lng: -86.7816 },  // Nashville, USA
+                { lat: 55.9533, lng: -3.1883 },   // Edinburgh, Scotland
+                { lat: 47.4979, lng: 19.0402 },   // Budapest, Hungary
+                { lat: 10.4806, lng: -66.9036 },  // Caracas, Venezuela
+                { lat: -12.0464, lng: -77.0428 }, // Lima, Peru
+                { lat: -4.4419, lng: 15.2663 },   // Kinshasa, DR Congo
+                { lat: 33.6844, lng: 73.0479 },   // Islamabad, Pakistan
+                { lat: 40.6401, lng: 22.9444 },   // Thessaloniki, Greece
+                { lat: 38.7223, lng: -9.1393 },   // Lisbon, Portugal
+                { lat: 59.9139, lng: 10.7522 },   // Oslo, Norway
+                { lat: 9.0579, lng: 7.4951 },     // Abuja, Nigeria
+                { lat: 25.0330, lng: 121.5654 },  // Taipei, Taiwan
+                { lat: -22.3285, lng: 24.6849 },  // Gaborone, Botswana
+                { lat: 35.6762, lng: 139.6503 },  // Yokohama, Japan
+                { lat: 39.9334, lng: 32.8597 },   // Ankara, Turkey
+                { lat: 37.5665, lng: 126.9780 },  // Seoul, South Korea
+                { lat: 54.6872, lng: 25.2797 },   // Vilnius, Lithuania
+                { lat: 1.3521, lng: 103.8198 },   // Singapore
+                { lat: 14.7167, lng: -17.4677 },  // Dakar, Senegal
+                { lat: -25.7461, lng: 28.1881 },  // Pretoria, South Africa
+                { lat: 18.7357, lng: -70.1627 },  // Santo Domingo, Dominican Republic
+                { lat: 16.8661, lng: -99.8836 },  // Acapulco, Mexico
+                { lat: 17.3850, lng: 78.4867 },   // Hyderabad, India
+                { lat: 42.6977, lng: 23.3242 },   // Sofia, Bulgaria
+                { lat: 19.0759, lng: 72.8777 },   // Mumbai, India
+                { lat: 41.0082, lng: 28.9784 },   // Istanbul, Turkey
+                { lat: 35.2828, lng: -120.6596 }, // San Luis Obispo, USA
+                { lat: -41.2865, lng: 174.7762 }, // Wellington, New Zealand
+                { lat: 44.4268, lng: 26.1025 },   // Bucharest, Romania
+                { lat: 29.7604, lng: -95.3698 },  // Houston, USA
+                { lat: 36.8065, lng: 10.1815 },   // Tunis, Tunisia
+                { lat: 32.7767, lng: -96.7970 },  // Dallas, USA
+                { lat: -2.1962, lng: -79.8862 },  // Guayaquil, Ecuador
+                { lat: -37.8136, lng: 144.9631 }, // Melbourne, Australia
+                { lat: 33.5731, lng: -7.5898 },   // Casablanca, Morocco
+                { lat: 24.8861, lng: 67.0321 },   // Karachi, Pakistan
+                { lat: -13.1631, lng: -72.5450 }, // Cusco, Peru
+                { lat: 52.2298, lng: 21.0122 },   // Warsaw, Poland
+                { lat: 46.9481, lng: 7.4474 },    // Bern, Switzerland
+                { lat: -16.5004, lng: -68.1500 }, // La Paz, Bolivia
+                { lat: 33.4484, lng: -112.0740 }, // Phoenix, USA
+                { lat: -5.0926, lng: -42.8016 },  // Teresina, Brazil
+                { lat: 30.0444, lng: 31.2357 },   // Cairo, Egypt
+                { lat: 35.9078, lng: 14.4536 },   // Valletta, Malta
+                { lat: 43.6532, lng: -79.3832 },   // Toronto, Canada
+                { lat: 34.0522, lng: -118.2437 }, // Los Angeles, USA
+                { lat: 51.1657, lng: 10.4515 },   // Germany (Central)
+                { lat: 30.5728, lng: 104.0668 },  // Chengdu, China
+                { lat: 43.6532, lng: -79.3832 },  // Toronto, Canada
+                { lat: 48.2082, lng: 16.3738 },   // Vienna, Austria
+                { lat: 31.9686, lng: -99.9018 },  // Texas, USA
+                { lat: -23.5505, lng: -46.6333 }, // São Paulo, Brazil
+                { lat: 25.2048, lng: 55.2708 },   // Dubai, UAE
+                { lat: 39.9526, lng: -75.1652 },  // Philadelphia, USA
+                { lat: 52.3676, lng: 4.9041 },    // Amsterdam, Netherlands
+                { lat: 59.9343, lng: 30.3351 },   // St. Petersburg, Russia
+                { lat: 37.9838, lng: 23.7275 },   // Athens, Greece
+                { lat: 38.2527, lng: -85.7585 },  // Louisville, USA
+                { lat: 19.4326, lng: -99.1332 },  // Mexico City, Mexico
+                { lat: 50.8503, lng: 4.3517 },    // Brussels, Belgium
+                { lat: 42.3601, lng: -71.0589 },  // Boston, USA
+                { lat: 43.0481, lng: -76.1474 },  // Syracuse, USA
+                { lat: 29.4241, lng: -98.4936 },  // San Antonio, USA
+                { lat: 27.1751, lng: 78.0421 },   // Agra, India (Taj Mahal)
+                { lat: 52.3791, lng: 4.9009 },    // Utrecht, Netherlands
+                { lat: 19.8672, lng: 85.8312 },   // Bhubaneswar, India
+                { lat: 41.8310, lng: -87.6298 },  // Chicago, USA
+                { lat: 40.4406, lng: -79.9959 },  // Pittsburgh, USA
+                { lat: 36.0734, lng: -79.7910 },  // Greensboro, USA
+                { lat: 22.5726, lng: 88.3639 },   // Kolkata, India
+                { lat: 54.5260, lng: 15.2551 },   // Poland (Central)
+                { lat: 43.1579, lng: -77.6109 },  // Rochester, USA
+                { lat: 32.7157, lng: -117.1611 }, // San Diego, USA
+                { lat: 48.1351, lng: 11.5820 },   // Munich, Germany
+                { lat: 39.7439, lng: -104.9903 } // Denver, USA
+            ];
+        
+            // Pick a random location from the list
+            let randomIndex = Math.floor(Math.random() * landCoordinates.length);
+            let newLocation = landCoordinates[randomIndex];
+        
+            // Update map view
+            currentLat = newLocation.lat;
+            currentLng = newLocation.lng;
+            map.setView([currentLat, currentLng]);
+            updateMiniMap();
+        }
+
+        function landmarkJump() {
+            // Predefined land coordinates (major cities & remote land areas)
+            const landmarkCoordinates = [
+                { lat: 27.1751, lng: 78.0421 },   // Taj Mahal, India
+                { lat: 48.8584, lng: 2.2945 },    // Eiffel Tower, France
+                { lat: 40.6892, lng: -74.0445 },  // Statue of Liberty, USA
+                { lat: 37.8199, lng: -122.4783 }, // Golden Gate Bridge, USA
+                { lat: 51.5007, lng: -0.1246 },   // Big Ben, UK
+                { lat: 35.6895, lng: 139.6917 },  // Tokyo Tower, Japan
+                { lat: 55.7516, lng: 37.6178 },   // Kremlin & Red Square, Russia
+                { lat: 41.8902, lng: 12.4922 },   // Colosseum, Italy
+                { lat: 48.8606, lng: 2.3376 },    // Louvre Museum, France
+                { lat: -22.9519, lng: -43.2105 }, // Christ the Redeemer, Brazil
+                { lat: 30.3285, lng: 35.4444 },   // Petra, Jordan
+                { lat: 29.9792, lng: 31.1342 },   // Great Pyramid of Giza, Egypt
+                { lat: 40.4319, lng: 116.5704 },  // Great Wall of China
+                { lat: 25.1972, lng: 55.2744 },   // Burj Khalifa, UAE
+                { lat: -13.1631, lng: -72.5450 }, // Machu Picchu, Peru
+                { lat: 43.7230, lng: 10.3966 },   // Leaning Tower of Pisa, Italy
+                { lat: 37.9715, lng: 23.7268 },   // Parthenon, Greece
+                { lat: -33.8572, lng: 151.2153 }, // Sydney Opera House, Australia
+                { lat: 40.7488, lng: -73.9857 },  // Empire State Building, USA
+                { lat: 27.9881, lng: 86.9250 },   // Mount Everest Base Camp, Nepal
+                { lat: 41.9029, lng: 12.4534 },   // Vatican City, Vatican
+                { lat: -15.9256, lng: -69.3354 }, // Lake Titicaca, Peru/Bolivia
+                { lat: 64.9631, lng: -19.0208 },  // Blue Lagoon, Iceland
+                { lat: 45.4144, lng: 12.3474 },   // Grand Canal, Venice, Italy
+                { lat: 34.1341, lng: -118.3215 }, // Hollywood Sign, USA
+                { lat: -3.0674, lng: 37.3556 },   // Mount Kilimanjaro, Tanzania
+                { lat: 1.2833, lng: 103.8607 },   // Marina Bay Sands, Singapore
+                { lat: 35.6586, lng: 139.7454 },  // Shibuya Crossing, Japan
+                { lat: 39.9163, lng: 116.3972 },  // Forbidden City, China
+                { lat: 45.8992, lng: 6.1294 },    // Mont Blanc, France/Italy
+                { lat: 53.3498, lng: -6.2603 },   // Temple Bar, Dublin, Ireland
+                { lat: -27.1252, lng: -109.3257 }, // Moai Statues, Easter Island, Chile
+                { lat: 51.1789, lng: -1.8262 },   // Stonehenge, UK
+                { lat: 58.3019, lng: -134.4197 }, // Mendenhall Glacier, USA
+                { lat: -25.3444, lng: 131.0369 }, // Uluru (Ayers Rock), Australia
+                { lat: 38.6247, lng: -90.1848 },  // Gateway Arch, USA
+                { lat: 59.9343, lng: 30.3351 },   // Winter Palace, Russia
+                { lat: 37.6371, lng: -119.5644 }, // Yosemite National Park, USA
+                { lat: 20.6843, lng: -88.5678 },  // Chichen Itza, Mexico
+                { lat: 60.3913, lng: 5.3221 },    // Bergen, Norway (Fjords)
+                { lat: 46.9481, lng: 7.4474 },    // Zytglogge, Bern, Switzerland
+                { lat: 35.0116, lng: 135.7681 },  // Fushimi Inari Shrine, Japan
+                { lat: -0.8311, lng: 11.5213 },   // Loango National Park, Gabon
+                { lat: 27.7114, lng: 85.3240 },   // Swayambhunath (Monkey Temple), Nepal
+                { lat: 52.5200, lng: 13.4050 },   // Brandenburg Gate, Germany
+                { lat: 14.6928, lng: -17.4467 },  // Dakar Grand Mosque, Senegal
+                { lat: 35.0119, lng: -111.7325 }, // Grand Canyon, USA
+                { lat: 32.6581, lng: -16.9241 },  // Cabo Girão, Portugal
+                { lat: -8.5207, lng: 179.1940 },   // Funafuti Atoll, Tuvalu
+                { lat: -45.0312, lng: 168.6626 }, // Milford Sound, New Zealand
+                { lat: 35.3606, lng: 138.7274 },  // Mount Fuji, Japan
+                { lat: 31.6056, lng: -8.0829 },   // Jardin Majorelle, Morocco
+                { lat: 19.4326, lng: -99.1332 },  // Palacio de Bellas Artes, Mexico
+                { lat: 25.2769, lng: 55.2962 },   // Dubai Fountain, UAE
+                { lat: 64.1355, lng: -21.8954 },  // Hallgrímskirkja, Iceland
+                { lat: -16.5004, lng: -68.1230 }, // Valle de la Luna, Bolivia
+                { lat: 60.1695, lng: 24.9354 },   // Helsinki Cathedral, Finland
+                { lat: 41.9022, lng: 12.4563 },   // St. Peter's Basilica, Vatican
+                { lat: -33.9249, lng: 18.4241 },  // Table Mountain, South Africa
+                { lat: 45.4642, lng: 9.1900 },    // Milan Cathedral, Italy
+                { lat: 59.3275, lng: 18.0724 },   // Vasa Museum, Sweden
+                { lat: -37.8181, lng: 144.9668 }, // Federation Square, Australia
+                { lat: 34.9888, lng: 135.7485 },  // Arashiyama Bamboo Grove, Japan
+                { lat: -41.1335, lng: 145.8446 }, // Cradle Mountain, Australia
+                { lat: 55.6761, lng: 12.5683 },   // Nyhavn, Denmark
+                { lat: 14.5995, lng: 120.9842 },  // Intramuros, Philippines
+                { lat: -22.9083, lng: -43.1964 }, // Sugarloaf Mountain, Brazil
+                { lat: 47.4979, lng: 19.0402 },   // Buda Castle, Hungary
+                { lat: 35.0116, lng: 135.7681 },  // Kinkaku-ji (Golden Pavilion), Japan
+                { lat: 39.9055, lng: 32.8625 },   // Anitkabir, Turkey
+                { lat: 47.2692, lng: 11.4041 },   // Innsbruck Old Town, Austria
+                { lat: 30.0444, lng: 31.2357 },   // Cairo Citadel, Egypt
+                { lat: 39.9500, lng: -75.1667 },  // Liberty Bell, USA
+                { lat: 38.7078, lng: -9.1366 },   // Belém Tower, Portugal
+                { lat: 41.0053, lng: 28.9770 },   // Hagia Sophia, Turkey
+                { lat: -3.4653, lng: -62.2159 },  // Amazon Rainforest, Brazil
+                { lat: 48.2082, lng: 16.3738 },   // Schönbrunn Palace, Austria
+                { lat: 45.0703, lng: 7.6869 },    // Mole Antonelliana, Italy
+                { lat: 56.9496, lng: 24.1052 },   // Riga Old Town, Latvia
+                { lat: 53.3498, lng: -6.2603 },   // Dublin Castle, Ireland
+                { lat: 14.6349, lng: -90.5069 },  // Tikal, Guatemala
+                { lat: 39.5734, lng: 2.6502 },    // Cathedral of Palma, Spain
+                { lat: 49.2827, lng: -123.1207 }, // Capilano Suspension Bridge, Canada
+                { lat: 36.1070, lng: -112.1130 }, // Horseshoe Bend, USA
+                { lat: 50.0647, lng: 19.9450 },   // Wawel Castle, Poland
+                { lat: -15.5950, lng: -56.0949 }, // Chapada dos Guimarães, Brazil
+                { lat: 13.4125, lng: 103.8666 },  // Angkor Wat, Cambodia
+                { lat: 36.5312, lng: -121.9210 }, // 17-Mile Drive, USA
+                { lat: 39.9334, lng: 32.8597 },   // Ankara Castle, Turkey
+                { lat: 44.4142, lng: 8.9421 },    // Genoa Aquarium, Italy
+                { lat: 43.7696, lng: 11.2558 },   // Ponte Vecchio, Italy
+                { lat: -4.2903, lng: 15.2793 },   // Congo River Rapids, DRC
+                { lat: 35.7325, lng: 139.7150 },  // Ghibli Museum, Japan
+                { lat: 39.2969, lng: -106.8213 }, // Maroon Bells, USA
+                { lat: 24.7136, lng: 46.6753 },   // Kingdom Centre Tower, Saudi Arabia
+                { lat: 39.4192, lng: -105.7697 }, // Mount Evans, USA
+                { lat: 50.0379, lng: 8.5622 },     // Palmengarten, Germany
+                { lat: 25.1972, lng: 55.2744 },  // Burj Khalifa, UAE
+                { lat: 64.9987, lng: -16.9981 }, // Svartifoss, Iceland
+                { lat: 48.8584, lng: 2.2945 },   // Eiffel Tower, France
+                { lat: -13.1631, lng: -72.5450 }, // Machu Picchu, Peru
+                { lat: 41.8902, lng: 12.4922 },  // Colosseum, Italy
+                { lat: 40.6892, lng: -74.0445 }, // Statue of Liberty, USA
+                { lat: 35.6895, lng: 139.6917 }, // Tokyo Tower, Japan
+                { lat: 27.1751, lng: 78.0421 },  // Taj Mahal, India
+                { lat: 51.1789, lng: -1.8262 },  // Stonehenge, UK
+                { lat: -22.9519, lng: -43.2105 }, // Christ the Redeemer, Brazil
+                { lat: 37.9715, lng: 23.7262 },  // Parthenon, Greece
+                { lat: 41.4036, lng: 2.1744 },   // Sagrada Familia, Spain
+                { lat: 40.4319, lng: 116.5704 }, // Great Wall of China
+                { lat: 55.7517, lng: 37.6176 },  // Red Square, Russia
+                { lat: 52.5163, lng: 13.3777 },  // Brandenburg Gate, Germany
+                { lat: -25.6953, lng: 27.2386 }, // Sun City, South Africa
+                { lat: -17.9243, lng: 25.8572 }, // Victoria Falls, Zambia/Zimbabwe
+                { lat: 37.7749, lng: -122.4194 }, // Golden Gate Bridge, USA
+                { lat: 35.2999, lng: -111.7225 }, // Meteor Crater, USA
+                { lat: 19.6915, lng: -98.8439 }, // Pyramid of the Sun, Mexico
+                { lat: 44.4279, lng: 110.0000 }, // Flaming Cliffs, Mongolia
+                { lat: 32.6509, lng: 51.6676 },  // Naqsh-e Jahan Square, Iran
+                { lat: -33.8568, lng: 151.2153 }, // Sydney Opera House, Australia
+                { lat: 53.3498, lng: -6.2603 },  // Temple Bar, Ireland
+                { lat: 59.9343, lng: 30.3351 },  // Church of the Savior on Spilled Blood, Russia
+                { lat: 34.8115, lng: 135.5260 }, // Himeji Castle, Japan
+                { lat: 14.0739, lng: -87.1852 }, // Copan Ruins, Honduras
+                { lat: 21.1740, lng: -86.8466 }, // Chichen Itza, Mexico
+                { lat: 35.1856, lng: 33.3823 },  // Kyrenia Castle, Cyprus
+                { lat: 50.0597, lng: 19.9332 },  // Main Market Square, Poland
+                { lat: 30.3285, lng: 35.4444 },  // Petra, Jordan
+                { lat: 48.8566, lng: 2.3522 },   // Louvre Museum, France
+                { lat: 31.9686, lng: 35.9325 },  // Dead Sea, Jordan/Israel
+                { lat: 33.8851, lng: 35.5134 },  // Jeita Grotto, Lebanon
+                { lat: 47.5576, lng: 10.7498 },  // Neuschwanstein Castle, Germany
+                { lat: 37.4344, lng: -122.1194 }, // Googleplex, USA
+                { lat: -3.0674, lng: 37.3556 },  // Mount Kilimanjaro, Tanzania
+                { lat: -1.9441, lng: 30.0619 },  // Kigali Genocide Memorial, Rwanda
+                { lat: 53.0749, lng: 8.8072 },   // Bremen Town Musicians, Germany
+                { lat: -10.1718, lng: 123.6060 }, // Kelimutu Crater Lakes, Indonesia
+                { lat: 46.9511, lng: 7.4386 },   // Zytglogge, Switzerland
+                { lat: 37.7937, lng: -122.3965 }, // Transamerica Pyramid, USA
+                { lat: 55.6761, lng: 12.5683 },  // The Little Mermaid, Denmark
+                { lat: 21.4225, lng: 39.8262 },  // Masjid al-Haram, Saudi Arabia
+                { lat: 40.7488, lng: -73.9854 }, // Empire State Building, USA
+                { lat: 39.9036, lng: 116.3914 }, // Forbidden City, China
+                { lat: 32.7765, lng: -79.9311 }, // Rainbow Row, USA
+                { lat: -16.5104, lng: -68.1584 } // San Francisco Church, Bolivia
+                
+            ];
+        
+            // Pick a random location from the list
+            let randomIndex = Math.floor(Math.random() * landmarkCoordinates.length);
+            let newLocation = landmarkCoordinates[randomIndex];
+        
+            // Update map view
+            currentLat = newLocation.lat;
+            currentLng = newLocation.lng;
+            map.setView([currentLat, currentLng]);
+            updateMiniMap();
+        }
+
+        function randomJump() {
+            currentLat = Math.random() * 170 - 85;
+            currentLng = Math.random() * 360 - 180;
+            map.setView([currentLat, currentLng]);
+            updateMiniMap();
+        }
+
+        function zoomIn() {
+            map.zoomIn();
+            decreaseSpeed();
+        }
+
+        function zoomOut() {
+            map.zoomOut();
+            increaseSpeed()
+        }
+
+        function startZooming(zoomIn) {
+            zoomInterval = setInterval(() => {
+                if (zoomIn) {
+                    map.zoomIn();
+                } else {
+                    map.zoomOut();
+                }
+            }, 200);
+        }
+
+        function stopZooming() {
+            clearInterval(zoomInterval);
+        }
+
+        function initMiniMap() {
+            window.miniMap = L.map('mini-map', {
+                center: [currentLat, currentLng],
+                zoom: 1,
+                zoomControl: false,
+                attributionControl: false
+            });
+
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(miniMap);
+            
+            window.miniMarker = L.circleMarker([currentLat, currentLng], {
+                color: 'red',
+                radius: 0.1,
+		weight: 1
+            }).addTo(miniMap);
+        }
+
+        function updateMiniMap() {
+            miniMarker.setLatLng([currentLat, currentLng]);
+            miniMap.setView([currentLat, currentLng], 1);
+        }
+
+        window.onload = initMap;
+    </script>
+
+</body>
+</html>
